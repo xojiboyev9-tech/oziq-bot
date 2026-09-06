@@ -1,0 +1,116 @@
+const tg = window.Telegram.WebApp;
+tg.ready();
+tg.expand();
+
+let products = [];
+let cart = {}; // { productId: qty }
+let activeCategory = "Hammasi";
+
+const productsEl = document.getElementById("products");
+const categoriesEl = document.getElementById("categories");
+const cartBar = document.getElementById("cart-bar");
+const cartCountEl = document.getElementById("cart-count");
+const cartTotalEl = document.getElementById("cart-total");
+const checkoutBtn = document.getElementById("checkout-btn");
+
+async function loadProducts() {
+  const res = await fetch("/api/products");
+  products = await res.json();
+  renderCategories();
+  renderProducts();
+}
+
+function renderCategories() {
+  const cats = ["Hammasi", ...new Set(products.map(p => p.category))];
+  categoriesEl.innerHTML = "";
+  cats.forEach(cat => {
+    const chip = document.createElement("div");
+    chip.className = "category-chip" + (cat === activeCategory ? " active" : "");
+    chip.textContent = cat;
+    chip.onclick = () => {
+      activeCategory = cat;
+      renderCategories();
+      renderProducts();
+    };
+    categoriesEl.appendChild(chip);
+  });
+}
+
+function renderProducts() {
+  productsEl.innerHTML = "";
+  const filtered = activeCategory === "Hammasi"
+    ? products
+    : products.filter(p => p.category === activeCategory);
+
+  filtered.forEach(p => {
+    const qty = cart[p.id] || 0;
+    const card = document.createElement("div");
+    card.className = "product-card";
+    card.innerHTML = `
+      <div class="product-info">
+        <div class="product-name">${escapeHtml(p.name)}</div>
+        <div class="product-desc">${escapeHtml(p.description || "")}</div>
+        <div class="product-price">${p.price.toLocaleString()} so'm</div>
+      </div>
+      <div class="qty-control">
+        <button class="qty-btn" data-action="minus" data-id="${p.id}">−</button>
+        <span class="qty-value">${qty}</span>
+        <button class="qty-btn" data-action="plus" data-id="${p.id}">+</button>
+      </div>
+    `;
+    productsEl.appendChild(card);
+  });
+
+  productsEl.querySelectorAll(".qty-btn").forEach(btn => {
+    btn.onclick = () => {
+      const id = btn.dataset.id;
+      const action = btn.dataset.action;
+      const current = cart[id] || 0;
+      if (action === "plus") {
+        cart[id] = current + 1;
+      } else if (current > 0) {
+        cart[id] = current - 1;
+        if (cart[id] === 0) delete cart[id];
+      }
+      renderProducts();
+      updateCartBar();
+    };
+  });
+}
+
+function updateCartBar() {
+  const ids = Object.keys(cart);
+  const count = ids.reduce((sum, id) => sum + cart[id], 0);
+  const total = ids.reduce((sum, id) => {
+    const p = products.find(pr => String(pr.id) === id);
+    return sum + (p ? p.price * cart[id] : 0);
+  }, 0);
+
+  if (count === 0) {
+    cartBar.classList.add("hidden");
+    return;
+  }
+  cartBar.classList.remove("hidden");
+  cartCountEl.textContent = count;
+  cartTotalEl.textContent = total.toLocaleString();
+}
+
+function escapeHtml(str) {
+  const div = document.createElement("div");
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+checkoutBtn.onclick = () => {
+  const items = Object.keys(cart).map(id => {
+    const p = products.find(pr => String(pr.id) === id);
+    return { id: p.id, name: p.name, price: p.price, qty: cart[id] };
+  });
+  const total = items.reduce((sum, it) => sum + it.price * it.qty, 0);
+
+  tg.sendData(JSON.stringify({ items, total }));
+  tg.close();
+};
+
+loadProducts();
+    
